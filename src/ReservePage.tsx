@@ -1,5 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent } from "react";
+import {
+  postAuth,
+  postReservation,
+  getReservation,
+  putReservation,
+  deleteReservation,
+  UnauthorizedError,
+} from "./api";
+import type { ReservationDetail } from "./api";
+import Toast from "./Toast";
 
 /* ===================== types ===================== */
 type ActiveTab = "reserve" | "check";
@@ -22,6 +32,13 @@ interface CheckForm {
 type ReserveError = Partial<Record<keyof ReserveForm, string>>;
 type CheckError = Partial<Record<keyof CheckForm, string>>;
 
+
+interface EditForm {
+  visitDate: string;
+  visitorCount: number;
+  memo: string;
+}
+
 interface FloatingInputProps<T> {
   label: string;
   name: keyof T;
@@ -32,6 +49,7 @@ interface FloatingInputProps<T> {
   as?: "input" | "textarea";
   min?: number;
   max?: number;
+  maxLength?: number;
   shakeKey?: number;
 }
 
@@ -73,9 +91,11 @@ function validateField(name: string, value: string | number): string | undefined
       if (selected < today) return "과거 날짜는 선택할 수 없습니다";
       break;
     }
-    case "visitCount": {
+    case "visitCount":
+    case "visitorCount": {
       const count = Number(value);
-      if (!count || count < 1) return "방문 인원은 1명 이상이어야 합니다";
+      if (!count) return "방문 인원을 입력해주세요";
+      if (count < 1) return "방문 인원은 1명 이상이어야 합니다";
       if (count > 10) return "방문 인원은 10명 이하로 입력해주세요";
       break;
     }
@@ -94,6 +114,7 @@ function FloatingInput<T>({
   as = "input",
   min,
   max,
+  maxLength,
   shakeKey,
 }: FloatingInputProps<T>) {
   const fieldId = `field-${String(name)}`;
@@ -152,6 +173,7 @@ function FloatingInput<T>({
           placeholder=""
           min={min}
           max={max}
+          maxLength={maxLength}
           className={inputClass}
         />
       )}
@@ -169,6 +191,170 @@ function FloatingInput<T>({
         </button>
       )}
       {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+/* ===================== ReservationModal ===================== */
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between py-2 border-b border-slate-100 last:border-0">
+      <span className="text-sm text-slate-400">{label}</span>
+      <span className="text-sm text-slate-700 font-medium">{value}</span>
+    </div>
+  );
+}
+
+interface ReservationModalProps {
+  detail: ReservationDetail;
+  token: string;
+  onClose: () => void;
+  onDeleted: () => void;
+  onUnauthorized: () => void;
+  onError: (msg: string) => void;
+}
+
+function ReservationModal({ detail, token, onClose, onDeleted, onUnauthorized, onError }: ReservationModalProps) {
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm>({
+    visitDate: detail.visitDate,
+    visitorCount: detail.visitorCount,
+    memo: detail.memo,
+  });
+  const [editErrors, setEditErrors] = useState<Partial<Record<keyof EditForm, string>>>({});
+  const [editShakeKey, setEditShakeKey] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  const handleEditChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    const inputType = (e.target as HTMLInputElement).type;
+    const field = name as keyof EditForm;
+    const parsed = inputType === "number" ? Number(value) : value;
+    setEditForm((prev) => ({ ...prev, [field]: parsed }));
+    setEditErrors((prev) => ({ ...prev, [field]: validateField(field, parsed) }));
+  };
+
+  const handleUpdate = async () => {
+    const errors: Partial<Record<keyof EditForm, string>> = {};
+    (Object.keys(editForm) as (keyof EditForm)[]).forEach((key) => {
+      const err = validateField(key, editForm[key]);
+      if (err) errors[key] = err;
+    });
+    if (Object.keys(errors).length) {
+      setEditErrors(errors);
+      setEditShakeKey((k) => k + 1);
+      return;
+    }
+    setLoading(true);
+    try {
+      await putReservation(token, detail.id, editForm);
+      setEditMode(false);
+    } catch (e) {
+      if (e instanceof UnauthorizedError) onUnauthorized();
+      else onError(e instanceof Error ? e.message : "예약 수정 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setLoading(true);
+    try {
+      await deleteReservation(token, detail.id);
+      onDeleted();
+    } catch (e) {
+      if (e instanceof UnauthorizedError) onUnauthorized();
+      else onError(e instanceof Error ? e.message : "예약 취소 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="p-8 space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-800">예약 상세</h2>
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-600 transition text-xl leading-none"
+            >
+              ✕
+            </button>
+          </div>
+
+          {editMode ? (
+            <div className="space-y-5">
+              <FloatingInput<EditForm>
+                label="방문 날짜"
+                name="visitDate"
+                type="date"
+                value={editForm.visitDate}
+                onChange={handleEditChange}
+                error={editErrors.visitDate}
+                shakeKey={editShakeKey}
+              />
+              <FloatingInput<EditForm>
+                label="방문 인원"
+                name="visitorCount"
+                type="number"
+                value={editForm.visitorCount}
+                onChange={handleEditChange}
+                error={editErrors.visitorCount}
+                min={1}
+                max={10}
+                shakeKey={editShakeKey}
+              />
+              <FloatingInput<EditForm>
+                label="메모"
+                name="memo"
+                value={editForm.memo}
+                onChange={handleEditChange}
+                as="textarea"
+              />
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setEditMode(false)}
+                  className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleUpdate}
+                  disabled={loading}
+                  className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition disabled:opacity-50"
+                >
+                  저장
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <DetailRow label="이름" value={detail.name} />
+              <DetailRow label="전화번호" value={detail.phoneNum} />
+              <DetailRow label="방문일" value={detail.visitDate} />
+              <DetailRow label="방문 인원" value={`${detail.visitorCount}명`} />
+              {detail.memo && <DetailRow label="메모" value={detail.memo} />}
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={handleDelete}
+                  disabled={loading}
+                  className="flex-1 py-3 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 text-sm transition disabled:opacity-50"
+                >
+                  예약 취소
+                </button>
+                <button
+                  onClick={() => setEditMode(true)}
+                  className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition"
+                >
+                  수정
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -196,7 +382,18 @@ export default function ReservePage() {
   const [checkShakeKey, setCheckShakeKey] = useState(0);
 
   const [reserveSuccess, setReserveSuccess] = useState(false);
-  const [checkSuccess, setCheckSuccess] = useState(false);
+
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastMessage(msg);
+    toastTimer.current = setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ReservationDetail | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
 
   /* handlers */
   const handleReserveChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -228,7 +425,7 @@ export default function ReservePage() {
   };
 
   /* submit */
-  const submitReserve = () => {
+  const submitReserve = async () => {
     const errors: ReserveError = {};
     (Object.keys(reserveForm) as (keyof ReserveForm)[]).forEach((key) => {
       const err = validateField(key, reserveForm[key]);
@@ -239,11 +436,29 @@ export default function ReservePage() {
       setReserveShakeKey((k) => k + 1);
       return;
     }
-    // TODO: API call
-    setReserveSuccess(true);
+    try {
+      await postReservation({
+        name: reserveForm.name,
+        phoneNum: reserveForm.phoneNum,
+        visitDate: reserveForm.visitDate,
+        visitorCount: reserveForm.visitCount,
+        memo: reserveForm.memo,
+        password: reserveForm.password,
+      });
+      setReserveSuccess(true);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "예약 중 오류가 발생했습니다.");
+    }
   };
 
-  const submitCheck = () => {
+  const handleUnauthorized = () => {
+    setAuthToken(null);
+    setShowDetail(false);
+    setCheckErrors({ password: "세션이 만료되었습니다. 다시 인증해주세요." });
+    setCheckShakeKey((k) => k + 1);
+  };
+
+  const submitCheck = async () => {
     const errors: CheckError = {};
     (Object.keys(checkForm) as (keyof CheckForm)[]).forEach((key) => {
       const err = validateField(key, checkForm[key]);
@@ -254,8 +469,16 @@ export default function ReservePage() {
       setCheckShakeKey((k) => k + 1);
       return;
     }
-    // TODO: API call
-    setCheckSuccess(true);
+    try {
+      const token = await postAuth(checkForm);
+      setAuthToken(token);
+      const data = await getReservation(token);
+      setDetail(data);
+      setShowDetail(true);
+    } catch (e) {
+      if (e instanceof UnauthorizedError) handleUnauthorized();
+      else showToast(e instanceof Error ? e.message : "예약 조회 중 오류가 발생했습니다.");
+    }
   };
 
   /* UI */
@@ -288,9 +511,8 @@ export default function ReservePage() {
           {/* Reserve */}
           {activeTab === "reserve" &&
             (reserveSuccess ? (
-              <div className="py-8 text-center space-y-3">
+              <div className="min-h-[480px] flex flex-col items-center justify-center text-center space-y-3">
                 <p className="font-semibold text-slate-800 text-lg">예약이 완료되었습니다</p>
-                <p className="text-sm text-slate-500">{reserveForm.name}님, 방문을 기다리고 있을게요.</p>
                 <button
                   onClick={() => {
                     setReserveSuccess(false);
@@ -318,6 +540,7 @@ export default function ReservePage() {
                   value={reserveForm.phoneNum}
                   onChange={handleReservePhone}
                   error={reserveErrors.phoneNum}
+                  maxLength={13}
                   shakeKey={reserveShakeKey}
                 />
                 <FloatingInput<ReserveForm>
@@ -366,55 +589,62 @@ export default function ReservePage() {
             ))}
 
           {/* Check */}
-          {activeTab === "check" &&
-            (checkSuccess ? (
-              <div className="py-8 text-center space-y-3">
-                <p className="font-semibold text-slate-800 text-lg">예약 확인 완료</p>
-                <p className="text-sm text-slate-500">{checkForm.name}님의 예약을 확인했습니다.</p>
-                <button
-                  onClick={() => setCheckSuccess(false)}
-                  className="mt-2 text-sm text-slate-400 underline"
-                >
-                  돌아가기
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <FloatingInput<CheckForm>
-                  label="이름"
-                  name="name"
-                  value={checkForm.name}
-                  onChange={handleCheckChange}
-                  error={checkErrors.name}
-                  shakeKey={checkShakeKey}
-                />
-                <FloatingInput<CheckForm>
-                  label="휴대폰 번호"
-                  name="phoneNum"
-                  value={checkForm.phoneNum}
-                  onChange={handleCheckPhone}
-                  error={checkErrors.phoneNum}
-                  shakeKey={checkShakeKey}
-                />
-                <FloatingInput<CheckForm>
-                  label="비밀번호"
-                  name="password"
-                  type="password"
-                  value={checkForm.password}
-                  onChange={handleCheckChange}
-                  error={checkErrors.password}
-                  shakeKey={checkShakeKey}
-                />
-                <button
-                  onClick={submitCheck}
-                  className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition"
-                >
-                  예약 확인
-                </button>
-              </div>
-            ))}
+          {activeTab === "check" && (
+            <div className="space-y-6">
+              <FloatingInput<CheckForm>
+                label="이름"
+                name="name"
+                value={checkForm.name}
+                onChange={handleCheckChange}
+                error={checkErrors.name}
+                shakeKey={checkShakeKey}
+              />
+              <FloatingInput<CheckForm>
+                label="휴대폰 번호"
+                name="phoneNum"
+                value={checkForm.phoneNum}
+                onChange={handleCheckPhone}
+                error={checkErrors.phoneNum}
+                maxLength={13}
+                shakeKey={checkShakeKey}
+              />
+              <FloatingInput<CheckForm>
+                label="비밀번호"
+                name="password"
+                type="password"
+                value={checkForm.password}
+                onChange={handleCheckChange}
+                error={checkErrors.password}
+                shakeKey={checkShakeKey}
+              />
+              <button
+                onClick={submitCheck}
+                className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition"
+              >
+                예약 확인
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {showDetail && detail && authToken && (
+        <ReservationModal
+          detail={detail}
+          token={authToken}
+          onClose={() => setShowDetail(false)}
+          onDeleted={() => {
+            setShowDetail(false);
+            setDetail(null);
+            setAuthToken(null);
+          }}
+          onUnauthorized={handleUnauthorized}
+          onError={showToast}
+        />
+      )}
+      {toastMessage && (
+        <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      )}
     </div>
   );
 }
