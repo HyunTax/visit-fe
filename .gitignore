@@ -15,6 +15,9 @@ dist-ssr
 # Claude Code
 .claude/
 
+# Assets (images, etc.)
+src/assets/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

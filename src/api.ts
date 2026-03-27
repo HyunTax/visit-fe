@@ -28,11 +28,10 @@ export async function postAuth(body: {
   const res = await fetch(`${BASE}/auth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, phoneNum: body.phoneNum.replace(/-/g, "") }),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, "인증 실패"));
-  const data = await res.json() as { token: string };
-  return data.token;
+  return (await res.text()).trim();
 }
 
 export async function postReservation(body: {
@@ -46,13 +45,18 @@ export async function postReservation(body: {
   const res = await fetch(`${BASE}/reservation`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, phoneNum: body.phoneNum.replace(/-/g, "") }),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, "예약 실패"));
 }
 
-export async function getReservation(token: string): Promise<ReservationDetail> {
-  const res = await fetch(`${BASE}/reservation/find`, {
+export async function getReservation(token: string, params: {
+  name: string;
+  phoneNum: string;
+  password: string;
+}): Promise<ReservationDetail> {
+  const query = new URLSearchParams({ ...params, phoneNum: params.phoneNum.replace(/-/g, "") }).toString();
+  const res = await fetch(`${BASE}/reservation/find?${query}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.status === 401) throw new UnauthorizedError();

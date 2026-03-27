@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import mainImg from "./assets/main.jpg";
 import type { ChangeEvent } from "react";
 import {
   postAuth,
@@ -210,11 +211,12 @@ interface ReservationModalProps {
   token: string;
   onClose: () => void;
   onDeleted: () => void;
+  onUpdated: (updated: EditForm) => void;
   onUnauthorized: () => void;
   onError: (msg: string) => void;
 }
 
-function ReservationModal({ detail, token, onClose, onDeleted, onUnauthorized, onError }: ReservationModalProps) {
+function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnauthorized, onError }: ReservationModalProps) {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<EditForm>({
     visitDate: detail.visitDate,
@@ -248,6 +250,7 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUnauthorized, o
     setLoading(true);
     try {
       await putReservation(token, detail.id, editForm);
+      onUpdated(editForm);
       setEditMode(false);
     } catch (e) {
       if (e instanceof UnauthorizedError) onUnauthorized();
@@ -472,7 +475,7 @@ export default function ReservePage() {
     try {
       const token = await postAuth(checkForm);
       setAuthToken(token);
-      const data = await getReservation(token);
+      const data = await getReservation(token, checkForm);
       setDetail(data);
       setShowDetail(true);
     } catch (e) {
@@ -486,8 +489,8 @@ export default function ReservePage() {
     <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl ring-1 ring-slate-200 overflow-hidden">
         {/* Image - 3:4 ratio */}
-        <div className="w-full aspect-[3/4] bg-gray-50 flex items-center justify-center">
-          <span className="text-gray-300 text-xl font-semibold">사진</span>
+        <div className="w-full flex justify-center py-8">
+          <img src={mainImg} alt="메인 사진" className="w-3/4 rounded-2xl shadow-md" />
         </div>
 
         {/* Card */}
@@ -633,6 +636,9 @@ export default function ReservePage() {
           detail={detail}
           token={authToken}
           onClose={() => setShowDetail(false)}
+          onUpdated={(updated) =>
+            setDetail((prev) => prev && { ...prev, ...updated })
+          }
           onDeleted={() => {
             setShowDetail(false);
             setDetail(null);
