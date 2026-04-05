@@ -1,6 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef } from "react";
 import mainImg from "./assets/main.jpg";
 import type { ChangeEvent } from "react";
+import DatePicker, { registerLocale } from "react-datepicker";
+import { ko } from "date-fns/locale/ko";
+import "react-datepicker/dist/react-datepicker.css";
+
+registerLocale("ko", ko);
 import {
   postAuth,
   postReservation,
@@ -196,6 +201,82 @@ function FloatingInput<T>({
   );
 }
 
+/* ===================== DateFloatingInput ===================== */
+interface DateFloatingInputProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  shakeKey?: number;
+}
+
+const CustomDateTrigger = forwardRef<
+  HTMLDivElement,
+  { value?: string; onClick?: () => void; label: string; error?: boolean }
+>(({ value, onClick, label, error }, ref) => (
+  <div ref={ref} className="relative" onClick={onClick}>
+    <input
+      readOnly
+      value={value || ""}
+      placeholder="날짜를 선택하세요"
+      className={cx(
+        "peer w-full rounded-xl border px-4 pt-6 pb-2 pr-10 focus:outline-none focus:ring-2 transition cursor-pointer placeholder:text-slate-300",
+        error ? "border-red-400 focus:ring-red-200" : "border-gray-200 focus:ring-gray-200"
+      )}
+    />
+    <label className="absolute left-4 top-2 text-sm text-slate-400 pointer-events-none">
+      {label}
+    </label>
+    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+    </span>
+  </div>
+));
+CustomDateTrigger.displayName = "CustomDateTrigger";
+
+function DateFloatingInput({ label, value, onChange, error, shakeKey }: DateFloatingInputProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!error) return;
+    const el = wrapperRef.current?.querySelector("div") as HTMLElement | null;
+    if (!el) return;
+    el.classList.remove("animate-shake");
+    void el.offsetWidth;
+    el.classList.add("animate-shake");
+  }, [error, shakeKey]);
+
+  const selected = value ? new Date(value + "T00:00:00") : null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const handleChange = (date: Date | null) => {
+    if (!date) { onChange(""); return; }
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    onChange(`${y}-${m}-${d}`);
+  };
+
+  return (
+    <div ref={wrapperRef}>
+      <DatePicker
+        selected={selected}
+        onChange={handleChange}
+        locale="ko"
+        dateFormat="yyyy년 MM월 dd일"
+        minDate={today}
+        customInput={<CustomDateTrigger label={label} error={!!error} />}
+        popperPlacement="bottom-start"
+        calendarClassName="dp-calendar"
+      />
+      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+    </div>
+  );
+}
+
 /* ===================== ReservationModal ===================== */
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -289,12 +370,13 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
 
           {editMode ? (
             <div className="space-y-5">
-              <FloatingInput<EditForm>
+              <DateFloatingInput
                 label="방문 날짜"
-                name="visitDate"
-                type="date"
                 value={editForm.visitDate}
-                onChange={handleEditChange}
+                onChange={(val) => {
+                  setEditForm((prev) => ({ ...prev, visitDate: val }));
+                  setEditErrors((prev) => ({ ...prev, visitDate: validateField("visitDate", val) }));
+                }}
                 error={editErrors.visitDate}
                 shakeKey={editShakeKey}
               />
@@ -546,12 +628,13 @@ export default function ReservePage() {
                   maxLength={13}
                   shakeKey={reserveShakeKey}
                 />
-                <FloatingInput<ReserveForm>
+                <DateFloatingInput
                   label="방문 날짜"
-                  name="visitDate"
-                  type="date"
                   value={reserveForm.visitDate}
-                  onChange={handleReserveChange}
+                  onChange={(val) => {
+                    setReserveForm((prev) => ({ ...prev, visitDate: val }));
+                    setReserveErrors((prev) => ({ ...prev, visitDate: validateField("visitDate", val) }));
+                  }}
                   error={reserveErrors.visitDate}
                   shakeKey={reserveShakeKey}
                 />
