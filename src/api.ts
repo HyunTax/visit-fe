@@ -1,4 +1,4 @@
-const BASE = "http://localhost:8080/v1/visit";
+const BASE = "http://14.6.25.24:8080/v1/visit";
 
 export class UnauthorizedError extends Error {}
 
@@ -11,13 +11,17 @@ async function parseErrorMessage(res: Response, fallback: string): Promise<strin
   }
 }
 
+export type ReservationStatus = "WAIT" | "CONFIRM" | "REJECT";
+
 export interface ReservationDetail {
   id: number;
   name: string;
   phoneNum: string;
   visitDate: string;
   visitorCount: number;
+  hasAllergy: boolean;
   memo: string;
+  status: ReservationStatus;
 }
 
 export async function postAuth(body: {
@@ -28,7 +32,7 @@ export async function postAuth(body: {
   const res = await fetch(`${BASE}/auth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, phoneNum: body.phoneNum.replace(/-/g, "") }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, "인증 실패"));
   return (await res.text()).trim();
@@ -39,13 +43,15 @@ export async function postReservation(body: {
   phoneNum: string;
   visitDate: string;
   visitorCount: number;
+  hasAllergy: boolean;
+
   memo: string;
   password: string;
 }): Promise<void> {
   const res = await fetch(`${BASE}/reservation`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, phoneNum: body.phoneNum.replace(/-/g, "") }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, "예약 실패"));
 }
@@ -55,7 +61,7 @@ export async function getReservation(token: string, params: {
   phoneNum: string;
   password: string;
 }): Promise<ReservationDetail> {
-  const query = new URLSearchParams({ ...params, phoneNum: params.phoneNum.replace(/-/g, "") }).toString();
+  const query = new URLSearchParams({ ...params }).toString();
   const res = await fetch(`${BASE}/reservation/find?${query}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -67,7 +73,7 @@ export async function getReservation(token: string, params: {
 export async function putReservation(
   token: string,
   id: number,
-  body: { visitDate: string; visitorCount: number; memo: string }
+  body: { visitDate: string; visitorCount: number; hasAllergy: boolean; memo: string }
 ): Promise<void> {
   const res = await fetch(`${BASE}/reservation/${id}`, {
     method: "PUT",
