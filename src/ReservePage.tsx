@@ -14,7 +14,7 @@ import {
   deleteReservation,
   UnauthorizedError,
 } from "./api";
-import type { ReservationDetail } from "./api";
+import type { ReservationDetail, ReservationStatus } from "./api";
 import Toast from "./Toast";
 
 /* ===================== types ===================== */
@@ -25,8 +25,12 @@ interface ReserveForm {
   phoneNum: string;
   visitDate: string;
   visitCount: number;
-  memo: string;
   password: string;
+}
+
+interface PreSubmitForm {
+  hasAllergy: boolean;
+  memo: string;
 }
 
 interface CheckForm {
@@ -42,6 +46,7 @@ type CheckError = Partial<Record<keyof CheckForm, string>>;
 interface EditForm {
   visitDate: string;
   visitorCount: number;
+  hasAllergy: boolean;
   memo: string;
 }
 
@@ -150,10 +155,10 @@ function FloatingInput<T>({
   const labelClass = alwaysFloat
     ? "absolute left-4 top-2 text-sm text-slate-400 pointer-events-none"
     : cx(
-        "absolute left-4 top-2 text-sm text-slate-400 transition-all pointer-events-none",
-        "peer-placeholder-shown:top-4 peer-placeholder-shown:text-base",
-        "peer-focus:top-2 peer-focus:text-sm"
-      );
+      "absolute left-4 top-2 text-sm text-slate-400 transition-all pointer-events-none",
+      "peer-placeholder-shown:top-4 peer-placeholder-shown:text-base",
+      "peer-focus:top-2 peer-focus:text-sm"
+    );
 
   return (
     <div className="relative">
@@ -229,7 +234,7 @@ const CustomDateTrigger = forwardRef<
     </label>
     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
       </svg>
     </span>
   </div>
@@ -287,6 +292,21 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+const STATUS_MAP: Record<ReservationStatus, { label: string; className: string }> = {
+  WAIT:    { label: "승인 대기중", className: "bg-slate-100 text-slate-500" },
+  CONFIRM: { label: "승인됨", className: "bg-emerald-100 text-emerald-600" },
+  REJECT:  { label: "거절됨", className: "bg-red-100 text-red-500" },
+};
+
+function StatusBadge({ status }: { status: ReservationStatus }) {
+  const { label, className } = STATUS_MAP[status] ?? STATUS_MAP.WAIT;
+  return (
+    <span className={cx("text-xs px-2 py-0.5 rounded-full font-medium", className)}>
+      {label}
+    </span>
+  );
+}
+
 interface ReservationModalProps {
   detail: ReservationDetail;
   token: string;
@@ -302,11 +322,17 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
   const [editForm, setEditForm] = useState<EditForm>({
     visitDate: detail.visitDate,
     visitorCount: detail.visitorCount,
+    hasAllergy: detail.hasAllergy,
     memo: detail.memo,
   });
   const [editErrors, setEditErrors] = useState<Partial<Record<keyof EditForm, string>>>({});
   const [editShakeKey, setEditShakeKey] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editConfirmMode, setEditConfirmMode] = useState(false);
+  const [editConfirmForm, setEditConfirmForm] = useState<{ hasAllergy: boolean; memo: string }>({ hasAllergy: false, memo: "" });
+  const [editConfirmMemoError, setEditConfirmMemoError] = useState<string | undefined>(undefined);
+  const [editConfirmShakeKey, setEditConfirmShakeKey] = useState(0);
 
   const handleEditChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -317,10 +343,12 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
     setEditErrors((prev) => ({ ...prev, [field]: validateField(field, parsed) }));
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = () => {
     const errors: Partial<Record<keyof EditForm, string>> = {};
-    (Object.keys(editForm) as (keyof EditForm)[]).forEach((key) => {
-      const err = validateField(key, editForm[key]);
+    (["visitDate", "visitorCount"] as (keyof EditForm)[]).forEach((key) => {
+      const val = editForm[key];
+      if (typeof val === "boolean") return;
+      const err = validateField(key, val);
       if (err) errors[key] = err;
     });
     if (Object.keys(errors).length) {
@@ -328,11 +356,23 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
       setEditShakeKey((k) => k + 1);
       return;
     }
+    setEditConfirmForm({ hasAllergy: false, memo: detail.memo });
+    setEditConfirmMode(true);
+  };
+
+  const handleConfirmUpdate = async () => {
+    if (editConfirmForm.hasAllergy && !editConfirmForm.memo.trim()) {
+      setEditConfirmMemoError("알러지 종류를 입력해주세요.");
+      setEditConfirmShakeKey((k) => k + 1);
+      return;
+    }
     setLoading(true);
     try {
-      await putReservation(token, detail.id, editForm);
-      onUpdated(editForm);
+      const payload: EditForm = { visitDate: editForm.visitDate, visitorCount: editForm.visitorCount, hasAllergy: editConfirmForm.hasAllergy, memo: editConfirmForm.memo };
+      await putReservation(token, detail.id, payload);
+      onUpdated(payload);
       setEditMode(false);
+      setEditConfirmMode(false);
     } catch (e) {
       if (e instanceof UnauthorizedError) onUnauthorized();
       else onError(e instanceof Error ? e.message : "예약 수정 중 오류가 발생했습니다.");
@@ -359,88 +399,171 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
       <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
         <div className="p-8 space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-800">예약 상세</h2>
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-slate-600 transition text-xl leading-none"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-800">
+                {confirmDelete ? "예약 취소" : editConfirmMode ? "추가 정보 확인" : editMode ? "예약 수정" : "예약 상세"}
+              </h2>
+              {!confirmDelete && !editMode && !editConfirmMode && (
+                <StatusBadge status={detail.status} />
+              )}
+            </div>
+            {!confirmDelete && !editConfirmMode && (
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-slate-600 transition text-xl leading-none"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          {editMode ? (
+          {confirmDelete ? (
             <div className="space-y-5">
-              <DateFloatingInput
-                label="방문 날짜"
-                value={editForm.visitDate}
-                onChange={(val) => {
-                  setEditForm((prev) => ({ ...prev, visitDate: val }));
-                  setEditErrors((prev) => ({ ...prev, visitDate: validateField("visitDate", val) }));
-                }}
-                error={editErrors.visitDate}
-                shakeKey={editShakeKey}
-              />
-              <FloatingInput<EditForm>
-                label="방문 인원"
-                name="visitorCount"
-                type="number"
-                value={editForm.visitorCount}
-                onChange={handleEditChange}
-                error={editErrors.visitorCount}
-                min={1}
-                max={10}
-                shakeKey={editShakeKey}
-              />
-              <FloatingInput<EditForm>
-                label="메모"
+              <p className="text-sm text-slate-500 text-center py-2">
+                <b>예약을 취소하시겠습니까?</b>
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
+                >
+                  돌아가기
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={loading}
+                  className="flex-1 py-3 rounded-xl bg-red-400 hover:bg-red-500 text-white text-sm transition disabled:opacity-50"
+                >
+                  {loading ? "처리 중..." : "취소 확인"}
+                </button>
+              </div>
+            </div>
+          ) : editConfirmMode ? (
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
+                  <span className="text-sm text-slate-400">알러지가 있으신가요?</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditConfirmForm((prev) => ({ ...prev, hasAllergy: !prev.hasAllergy }));
+                      setEditConfirmMemoError(undefined);
+                    }}
+                    className={cx(
+                      "relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none",
+                      editConfirmForm.hasAllergy ? "bg-emerald-400" : "bg-slate-200"
+                    )}
+                  >
+                    <span className={cx(
+                      "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-300",
+                      editConfirmForm.hasAllergy ? "translate-x-8" : "translate-x-1"
+                    )} />
+                  </button>
+                </div>
+                {editConfirmForm.hasAllergy && (
+                  <p className="text-xs text-emerald-600 px-1">
+                    메모에 알러지 종류를 적어주세요 (예: 견과류, 유제품 등)
+                  </p>
+                )}
+              </div>
+              <FloatingInput<{ hasAllergy: boolean; memo: string }>
+                label={editConfirmForm.hasAllergy ? "알러지 종류 및 메모" : "메모 (선택)"}
                 name="memo"
-                value={editForm.memo}
-                onChange={handleEditChange}
+                value={editConfirmForm.memo}
+                onChange={(e) => {
+                  setEditConfirmForm((prev) => ({ ...prev, memo: e.target.value }));
+                  if (editConfirmMemoError) setEditConfirmMemoError(undefined);
+                }}
+                error={editConfirmMemoError}
+                shakeKey={editConfirmShakeKey}
                 as="textarea"
               />
               <div className="flex gap-3 pt-2">
                 <button
-                  onClick={() => setEditMode(false)}
+                  onClick={() => setEditConfirmMode(false)}
                   className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
                 >
-                  취소
+                  돌아가기
                 </button>
                 <button
-                  onClick={handleUpdate}
+                  onClick={handleConfirmUpdate}
                   disabled={loading}
                   className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition disabled:opacity-50"
                 >
-                  저장
+                  {loading ? "처리 중..." : "수정 요청"}
                 </button>
               </div>
             </div>
-          ) : (
-            <div className="space-y-1">
-              <DetailRow label="이름" value={detail.name} />
-              <DetailRow label="전화번호" value={detail.phoneNum} />
-              <DetailRow label="방문일" value={detail.visitDate} />
-              <DetailRow label="방문 인원" value={`${detail.visitorCount}명`} />
-              {detail.memo && <DetailRow label="메모" value={detail.memo} />}
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={handleDelete}
-                  disabled={loading}
-                  className="flex-1 py-3 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 text-sm transition disabled:opacity-50"
-                >
-                  예약 취소
-                </button>
-                <button
-                  onClick={() => setEditMode(true)}
-                  className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition"
-                >
-                  수정
-                </button>
+          ) : editMode ? (
+              <div className="space-y-5">
+                <DateFloatingInput
+                  label="방문 날짜"
+                  value={editForm.visitDate}
+                  onChange={(val) => {
+                    setEditForm((prev) => ({ ...prev, visitDate: val }));
+                    setEditErrors((prev) => ({ ...prev, visitDate: validateField("visitDate", val) }));
+                  }}
+                  error={editErrors.visitDate}
+                  shakeKey={editShakeKey}
+                />
+                <FloatingInput<EditForm>
+                  label="방문 인원"
+                  name="visitorCount"
+                  type="number"
+                  value={editForm.visitorCount}
+                  onChange={handleEditChange}
+                  error={editErrors.visitorCount}
+                  min={1}
+                  max={10}
+                  shakeKey={editShakeKey}
+                />
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setEditForm({ visitDate: detail.visitDate, visitorCount: detail.visitorCount, hasAllergy: detail.hasAllergy, memo: detail.memo });
+                      setEditErrors({});
+                      setEditMode(false);
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={handleUpdate}
+                    className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition"
+                  >
+                    수정 요청
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-1">
+                <DetailRow label="이름" value={detail.name} />
+                <DetailRow label="전화번호" value={detail.phoneNum} />
+                <DetailRow label="방문일" value={detail.visitDate} />
+                <DetailRow label="방문 인원" value={`${detail.visitorCount}명`} />
+                <DetailRow label="알러지" value={detail.hasAllergy ? "있음" : "없음"} />
+                {detail.memo && <DetailRow label="메모" value={detail.memo} />}
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={loading}
+                    className="flex-1 py-3 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 text-sm transition disabled:opacity-50"
+                  >
+                    예약 취소
+                  </button>
+                  <button
+                    onClick={() => setEditMode(true)}
+                    className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition"
+                  >
+                    예약 수정
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
   );
 }
 
@@ -450,8 +573,13 @@ const RESERVE_INITIAL: ReserveForm = {
   phoneNum: "",
   visitDate: "",
   visitCount: 1,
-  memo: "",
   password: "",
+};
+
+const PRESUBMIT_INITIAL: PreSubmitForm = {
+  hasAllergy: false,
+
+  memo: "",
 };
 
 export default function ReservePage() {
@@ -467,6 +595,12 @@ export default function ReservePage() {
   const [checkShakeKey, setCheckShakeKey] = useState(0);
 
   const [reserveSuccess, setReserveSuccess] = useState(false);
+  const [reserveLoading, setReserveLoading] = useState(false);
+  const [checkLoading, setCheckLoading] = useState(false);
+  const [showPreSubmit, setShowPreSubmit] = useState(false);
+  const [preSubmitForm, setPreSubmitForm] = useState<PreSubmitForm>(PRESUBMIT_INITIAL);
+  const [preSubmitMemoError, setPreSubmitMemoError] = useState<string | undefined>(undefined);
+  const [preSubmitShakeKey, setPreSubmitShakeKey] = useState(0);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -510,7 +644,7 @@ export default function ReservePage() {
   };
 
   /* submit */
-  const submitReserve = async () => {
+  const submitReserve = () => {
     const errors: ReserveError = {};
     (Object.keys(reserveForm) as (keyof ReserveForm)[]).forEach((key) => {
       const err = validateField(key, reserveForm[key]);
@@ -521,18 +655,34 @@ export default function ReservePage() {
       setReserveShakeKey((k) => k + 1);
       return;
     }
+    setPreSubmitForm(PRESUBMIT_INITIAL);
+    setShowPreSubmit(true);
+  };
+
+  const confirmReserve = async () => {
+    if (preSubmitForm.hasAllergy && !preSubmitForm.memo.trim()) {
+      setPreSubmitMemoError("알러지 종류를 입력해주세요.");
+      setPreSubmitShakeKey((k) => k + 1);
+      return;
+    }
+    setReserveLoading(true);
     try {
       await postReservation({
         name: reserveForm.name,
         phoneNum: reserveForm.phoneNum,
         visitDate: reserveForm.visitDate,
         visitorCount: reserveForm.visitCount,
-        memo: reserveForm.memo,
+        hasAllergy: preSubmitForm.hasAllergy,
+
+        memo: preSubmitForm.memo,
         password: reserveForm.password,
       });
+      setShowPreSubmit(false);
       setReserveSuccess(true);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "예약 중 오류가 발생했습니다.");
+    } finally {
+      setReserveLoading(false);
     }
   };
 
@@ -554,6 +704,7 @@ export default function ReservePage() {
       setCheckShakeKey((k) => k + 1);
       return;
     }
+    setCheckLoading(true);
     try {
       const token = await postAuth(checkForm);
       setAuthToken(token);
@@ -563,6 +714,8 @@ export default function ReservePage() {
     } catch (e) {
       if (e instanceof UnauthorizedError) handleUnauthorized();
       else showToast(e instanceof Error ? e.message : "예약 조회 중 오류가 발생했습니다.");
+    } finally {
+      setCheckLoading(false);
     }
   };
 
@@ -596,15 +749,22 @@ export default function ReservePage() {
           {/* Reserve */}
           {activeTab === "reserve" &&
             (reserveSuccess ? (
-              <div className="min-h-[480px] flex flex-col items-center justify-center text-center space-y-3">
-                <p className="font-semibold text-slate-800 text-lg">예약이 완료되었습니다</p>
+              <div className="min-h-[480px] flex flex-col items-center justify-center text-center space-y-6 px-4">
+                <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xl font-semibold text-slate-800">예약이 완료되었습니다</p>
+                </div>
                 <button
                   onClick={() => {
                     setReserveSuccess(false);
                     setReserveForm(RESERVE_INITIAL);
                     setReserveErrors({});
                   }}
-                  className="mt-2 text-sm text-slate-400 underline"
+                  className="w-full py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
                 >
                   새 예약하기
                 </button>
@@ -658,18 +818,12 @@ export default function ReservePage() {
                   error={reserveErrors.password}
                   shakeKey={reserveShakeKey}
                 />
-                <FloatingInput<ReserveForm>
-                  label="메모"
-                  name="memo"
-                  value={reserveForm.memo}
-                  onChange={handleReserveChange}
-                  as="textarea"
-                />
                 <button
                   onClick={submitReserve}
-                  className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition"
+                  disabled={reserveLoading}
+                  className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition disabled:opacity-50"
                 >
-                  예약
+                  {reserveLoading ? "처리 중" : "예약 요청"}
                 </button>
               </div>
             ))}
@@ -705,14 +859,93 @@ export default function ReservePage() {
               />
               <button
                 onClick={submitCheck}
-                className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition"
+                disabled={checkLoading}
+                className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition disabled:opacity-50"
               >
-                예약 확인
+                {checkLoading ? "처리 중..." : "예약 확인"}
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* 예약 확인 모달 */}
+      {showPreSubmit && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-8 space-y-6">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setShowPreSubmit(false)}
+                  className="text-slate-400 hover:text-slate-600 transition text-xl leading-none"
+                >
+                </button>
+              </div>
+              <div className="space-y-5">
+                {/* 알러지 토글 */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
+                    <span className="text-sm text-slate-400">알러지가 있으신가요?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreSubmitForm((prev) => ({
+                          ...prev,
+                          hasAllergy: !prev.hasAllergy,
+                        }));
+                        setPreSubmitMemoError(undefined);
+                      }}
+                      className={cx(
+                        "relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none",
+                        preSubmitForm.hasAllergy ? "bg-emerald-400" : "bg-slate-200"
+                      )}
+                    >
+                      <span
+                        className={cx(
+                          "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-300",
+                          preSubmitForm.hasAllergy ? "translate-x-8" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                  </div>
+                  {preSubmitForm.hasAllergy && (
+                    <p className="text-xs text-emerald-600 px-1">
+                      메모에 알러지 종류를 적어주세요 (예: 견과류, 유제품 등)
+                    </p>
+                  )}
+                </div>
+                <FloatingInput<PreSubmitForm>
+                  label={preSubmitForm.hasAllergy ? "알러지 종류 및 메모" : "메모 (선택)"}
+                  name="memo"
+                  value={preSubmitForm.memo}
+                  onChange={(e) => {
+                    setPreSubmitForm((prev) => ({ ...prev, memo: e.target.value }));
+                    if (preSubmitMemoError) setPreSubmitMemoError(undefined);
+                  }}
+                  error={preSubmitMemoError}
+                  shakeKey={preSubmitShakeKey}
+                  as="textarea"
+                />
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setShowPreSubmit(false)}
+                    className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={confirmReserve}
+                    disabled={reserveLoading}
+                    className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition disabled:opacity-50"
+                  >
+                    {reserveLoading ? "처리 중..." : "예약하기"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDetail && detail && authToken && (
         <ReservationModal
