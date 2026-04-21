@@ -16,6 +16,9 @@ import {
 } from "./api";
 import type { ReservationDetail, ReservationStatus } from "./api";
 import Toast from "./Toast";
+import { FloatingInput, cx } from "./FloatingInput";
+import AdminLogin from "./AdminLogin";
+import AdminReservationList from "./AdminReservationList";
 
 /* ===================== types ===================== */
 type ActiveTab = "reserve" | "check";
@@ -42,7 +45,6 @@ interface CheckForm {
 type ReserveError = Partial<Record<keyof ReserveForm, string>>;
 type CheckError = Partial<Record<keyof CheckForm, string>>;
 
-
 interface EditForm {
   visitDate: string;
   visitorCount: number;
@@ -50,25 +52,7 @@ interface EditForm {
   memo: string;
 }
 
-interface FloatingInputProps<T> {
-  label: string;
-  name: keyof T;
-  type?: string;
-  value: string | number;
-  onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
-  error?: string;
-  as?: "input" | "textarea";
-  min?: number;
-  max?: number;
-  maxLength?: number;
-  shakeKey?: number;
-}
-
 /* ===================== helpers ===================== */
-function cx(...classes: (string | false | undefined | null)[]): string {
-  return classes.filter(Boolean).join(" ");
-}
-
 function formatPhoneNumber(value: string): string {
   const n = value.replace(/[^0-9]/g, "");
   if (n.length <= 3) return n;
@@ -114,98 +98,6 @@ function validateField(name: string, value: string | number): string | undefined
   return undefined;
 }
 
-/* ===================== FloatingInput ===================== */
-function FloatingInput<T>({
-  label,
-  name,
-  type = "text",
-  value,
-  onChange,
-  error,
-  as = "input",
-  min,
-  max,
-  maxLength,
-  shakeKey,
-}: FloatingInputProps<T>) {
-  const fieldId = `field-${String(name)}`;
-  const inputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [showPassword, setShowPassword] = useState(false);
-
-  // date/number는 브라우저 기본 UI가 항상 표시되므로 라벨 고정
-  const alwaysFloat = type === "date" || type === "number";
-
-  // error 발생 또는 submit 재시도 시 shake 재트리거
-  useEffect(() => {
-    if (!error) return;
-    const el = (as === "textarea" ? textareaRef.current : inputRef.current) as HTMLElement | null;
-    if (!el) return;
-    el.classList.remove("animate-shake");
-    void el.offsetWidth; // reflow 강제
-    el.classList.add("animate-shake");
-  }, [error, shakeKey, as]);
-
-  const inputClass = cx(
-    "peer w-full rounded-xl border px-4 pt-6 pb-2 focus:outline-none focus:ring-2 transition",
-    error ? "border-red-400 focus:ring-red-200" : "border-gray-200 focus:ring-gray-200",
-    type === "password" && "pr-12"
-  );
-
-  const labelClass = alwaysFloat
-    ? "absolute left-4 top-2 text-sm text-slate-400 pointer-events-none"
-    : cx(
-      "absolute left-4 top-2 text-sm text-slate-400 transition-all pointer-events-none",
-      "peer-placeholder-shown:top-4 peer-placeholder-shown:text-base",
-      "peer-focus:top-2 peer-focus:text-sm"
-    );
-
-  return (
-    <div className="relative">
-      {as === "textarea" ? (
-        <textarea
-          ref={textareaRef}
-          id={fieldId}
-          name={String(name)}
-          value={value}
-          onChange={onChange}
-          placeholder=""
-          rows={3}
-          className={cx(inputClass, "resize-none")}
-        />
-      ) : (
-        <input
-          ref={inputRef}
-          id={fieldId}
-          type={type === "password" && showPassword ? "text" : type}
-          name={String(name)}
-          value={value}
-          onChange={onChange}
-          placeholder=""
-          min={min}
-          max={max}
-          maxLength={maxLength}
-          className={inputClass}
-        />
-      )}
-      <label htmlFor={fieldId} className={labelClass}>
-        {label}
-      </label>
-      {type === "password" && (
-        <button
-          type="button"
-          onClick={() => setShowPassword((v) => !v)}
-          tabIndex={-1}
-          className="absolute right-3 top-5 text-xs text-slate-400 hover:text-slate-600 transition"
-        >
-          {showPassword ? "숨김" : "표시"}
-        </button>
-      )}
-      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
-    </div>
-  );
-}
-
 /* ===================== DateFloatingInput ===================== */
 interface DateFloatingInputProps {
   label: string;
@@ -226,7 +118,7 @@ const CustomDateTrigger = forwardRef<
       placeholder="날짜를 선택하세요"
       className={cx(
         "peer w-full rounded-xl border px-4 pt-6 pb-2 pr-10 focus:outline-none focus:ring-2 transition cursor-pointer placeholder:text-slate-300",
-        error ? "border-red-400 focus:ring-red-200" : "border-gray-200 focus:ring-gray-200"
+        error ? "border-red-400 focus:ring-red-200" : "border-[#ece6dc] focus:ring-[#e8d5c0]"
       )}
     />
     <label className="absolute left-4 top-2 text-sm text-slate-400 pointer-events-none">
@@ -293,9 +185,10 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 const STATUS_MAP: Record<ReservationStatus, { label: string; className: string }> = {
-  WAIT:    { label: "승인 대기중", className: "bg-slate-100 text-slate-500" },
+  WAIT: { label: "승인 대기중", className: "bg-slate-100 text-slate-500" },
   CONFIRM: { label: "승인됨", className: "bg-emerald-100 text-emerald-600" },
-  REJECT:  { label: "거절됨", className: "bg-red-100 text-red-500" },
+  REJECT: { label: "거절됨", className: "bg-red-100 text-red-500" },
+  CANCEL: { label: "취소됨", className: "bg-slate-100 text-slate-400" },
 };
 
 function StatusBadge({ status }: { status: ReservationStatus }) {
@@ -315,9 +208,10 @@ interface ReservationModalProps {
   onUpdated: (updated: EditForm) => void;
   onUnauthorized: () => void;
   onError: (msg: string) => void;
+  onNewReservation: () => void;
 }
 
-function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnauthorized, onError }: ReservationModalProps) {
+function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnauthorized, onError, onNewReservation }: ReservationModalProps) {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<EditForm>({
     visitDate: detail.visitDate,
@@ -488,10 +382,101 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
                 <button
                   onClick={handleConfirmUpdate}
                   disabled={loading}
-                  className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition disabled:opacity-50"
+                  className="flex-1 py-3 rounded-xl bg-[#c28a5a] hover:bg-[#9c6838] text-white text-sm transition disabled:opacity-50"
                 >
                   {loading ? "처리 중..." : "수정 요청"}
                 </button>
+              </div>
+            </div>
+          ) : editMode ? (
+            <div className="space-y-5">
+              <DateFloatingInput
+                label="방문 날짜"
+                value={editForm.visitDate}
+                onChange={(val) => {
+                  setEditForm((prev) => ({ ...prev, visitDate: val }));
+                  setEditErrors((prev) => ({ ...prev, visitDate: validateField("visitDate", val) }));
+                }}
+                error={editErrors.visitDate}
+                shakeKey={editShakeKey}
+              />
+              <FloatingInput<EditForm>
+                label="방문 인원"
+                name="visitorCount"
+                type="number"
+                value={editForm.visitorCount}
+                onChange={handleEditChange}
+                error={editErrors.visitorCount}
+                min={1}
+                max={10}
+                shakeKey={editShakeKey}
+              />
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setEditForm({ visitDate: detail.visitDate, visitorCount: detail.visitorCount, hasAllergy: detail.hasAllergy, memo: detail.memo });
+                    setEditErrors({});
+                    setEditMode(false);
+                  }}
+                  className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
+                >
+                  돌아가기
+                </button>
+                <button
+                  onClick={handleUpdate}
+                  className="flex-1 py-3 rounded-xl bg-[#c28a5a] hover:bg-[#9c6838] text-white text-sm transition"
+                >
+                  수정 요청
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <DetailRow label="이름" value={detail.name} />
+              <DetailRow label="전화번호" value={detail.phoneNum} />
+              <DetailRow label="방문일" value={detail.visitDate} />
+              <DetailRow label="방문 인원" value={`${detail.visitorCount}명`} />
+              <DetailRow label="알러지" value={detail.hasAllergy ? "있음" : "없음"} />
+              {detail.memo && <DetailRow label="메모" value={detail.memo} />}
+              {detail.status === "REJECT" && detail.statusMemo && (
+                <div className="mt-2 px-3 py-2.5 bg-red-50 rounded-xl border border-red-100">
+                  <p className="text-[11px] text-red-400 font-semibold mb-0.5">거절 사유</p>
+                  <p className="text-[12.5px] text-red-600 leading-relaxed">{detail.statusMemo}</p>
+                </div>
+              )}
+              <div className="flex gap-3 pt-4">
+                {detail.status === "WAIT" && (<>
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={loading}
+                    className="flex-1 py-3 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 text-sm transition disabled:opacity-50"
+                  >
+                    예약 취소
+                  </button>
+                  <button
+                    onClick={() => setEditMode(true)}
+                    className="flex-1 py-3 rounded-xl bg-[#c28a5a] hover:bg-[#9c6838] text-white text-sm transition"
+                  >
+                    예약 수정
+                  </button>
+                </>)}
+                {detail.status === "CONFIRM" && (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={loading}
+                    className="w-full py-3 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 text-sm transition disabled:opacity-50"
+                  >
+                    예약 취소
+                  </button>
+                )}
+                {(detail.status === "REJECT" || detail.status === "CANCEL") && (
+                  <button
+                    onClick={onNewReservation}
+                    className="w-full py-3 rounded-xl bg-[#c28a5a] hover:bg-[#9c6838] text-white text-sm transition"
+                  >
+                    새 예약하기
+                  </button>
+                )}
               </div>
             </div>
           ) : editMode ? (
@@ -578,7 +563,6 @@ const RESERVE_INITIAL: ReserveForm = {
 
 const PRESUBMIT_INITIAL: PreSubmitForm = {
   hasAllergy: false,
-
   memo: "",
 };
 
@@ -613,6 +597,30 @@ export default function ReservePage() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [detail, setDetail] = useState<ReservationDetail | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [showAdminList, setShowAdminList] = useState(false);
+
+  // /admin URL로 직접 접근 시 로그인 팝업 표시
+  useEffect(() => {
+    if (window.location.pathname === "/admin") {
+      setShowAdminLogin(true);
+    }
+  }, []);
+
+  // 브라우저 뒤로가기/앞으로가기 시 관리자 화면 state 동기화
+  useEffect(() => {
+    const handlePopState = () => {
+      if (window.location.pathname === "/admin") {
+        setShowAdminLogin(true);
+      } else {
+        setShowAdminList(false);
+        setShowAdminLogin(false);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   /* handlers */
   const handleReserveChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -673,7 +681,6 @@ export default function ReservePage() {
         visitDate: reserveForm.visitDate,
         visitorCount: reserveForm.visitCount,
         hasAllergy: preSubmitForm.hasAllergy,
-
         memo: preSubmitForm.memo,
         password: reserveForm.password,
       });
@@ -723,22 +730,20 @@ export default function ReservePage() {
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl ring-1 ring-slate-200 overflow-hidden">
-        {/* Image - 3:4 ratio */}
         <div className="w-full flex justify-center py-8">
           <img src={mainImg} alt="메인 사진" className="w-3/4 rounded-2xl shadow-md" />
         </div>
-
-        {/* Card */}
         <div className="p-10 space-y-8">
-          {/* Tabs */}
-          <div className="flex bg-slate-100 rounded-xl p-1">
+          <div className="flex bg-white border border-[#f0e8dc] rounded-xl p-1">
             {(["reserve", "check"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={cx(
                   "flex-1 py-2 rounded-lg text-sm font-semibold transition",
-                  activeTab === tab ? "bg-white shadow text-slate-800" : "text-slate-500"
+                  activeTab === tab
+                    ? "bg-[#c28a5a] text-white shadow-sm"
+                    : "text-slate-400 hover:text-slate-600"
                 )}
               >
                 {tab === "reserve" ? "예약" : "예약 확인"}
@@ -746,7 +751,6 @@ export default function ReservePage() {
             ))}
           </div>
 
-          {/* Reserve */}
           {activeTab === "reserve" &&
             (reserveSuccess ? (
               <div className="min-h-[480px] flex flex-col items-center justify-center text-center space-y-6 px-4">
@@ -821,14 +825,24 @@ export default function ReservePage() {
                 <button
                   onClick={submitReserve}
                   disabled={reserveLoading}
-                  className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition disabled:opacity-50"
+                  className="w-full bg-[#c28a5a] hover:bg-[#9c6838] text-white py-3 rounded-xl shadow-[0_6px_14px_-6px_rgba(194,138,90,0.6)] transition disabled:opacity-50"
                 >
                   {reserveLoading ? "처리 중" : "예약 요청"}
                 </button>
+                <div className="text-center -mt-2">
+                  <button
+                    onClick={() => {
+                      history.pushState({}, "", "/admin");
+                      setShowAdminLogin(true);
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-600 transition"
+                  >
+                    관리자 로그인
+                  </button>
+                </div>
               </div>
             ))}
 
-          {/* Check */}
           {activeTab === "check" && (
             <div className="space-y-6">
               <FloatingInput<CheckForm>
@@ -860,16 +874,23 @@ export default function ReservePage() {
               <button
                 onClick={submitCheck}
                 disabled={checkLoading}
-                className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl transition disabled:opacity-50"
+                className="w-full bg-[#c28a5a] hover:bg-[#9c6838] text-white py-3 rounded-xl shadow-[0_6px_14px_-6px_rgba(194,138,90,0.6)] transition disabled:opacity-50"
               >
                 {checkLoading ? "처리 중..." : "예약 확인"}
               </button>
+              <div className="text-center -mt-2">
+                <button
+                  onClick={() => setShowAdminLogin(true)}
+                  className="text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600 transition"
+                >
+                  관리자 로그인
+                </button>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* 예약 확인 모달 */}
       {showPreSubmit && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
@@ -882,7 +903,6 @@ export default function ReservePage() {
                 </button>
               </div>
               <div className="space-y-5">
-                {/* 알러지 토글 */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
                     <span className="text-sm text-slate-400">알러지가 있으신가요?</span>
@@ -936,7 +956,7 @@ export default function ReservePage() {
                   <button
                     onClick={confirmReserve}
                     disabled={reserveLoading}
-                    className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition disabled:opacity-50"
+                    className="flex-1 py-3 rounded-xl bg-[#c28a5a] hover:bg-[#9c6838] text-white text-sm transition disabled:opacity-50"
                   >
                     {reserveLoading ? "처리 중..." : "예약하기"}
                   </button>
@@ -962,10 +982,43 @@ export default function ReservePage() {
           }}
           onUnauthorized={handleUnauthorized}
           onError={showToast}
+          onNewReservation={() => {
+            setShowDetail(false);
+            setDetail(null);
+            setAuthToken(null);
+            setActiveTab("reserve");
+          }}
         />
       )}
       {toastMessage && (
         <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      )}
+
+      {showAdminLogin && (
+        <AdminLogin
+          onClose={() => {
+            setShowAdminLogin(false);
+            history.pushState({}, "", "/");
+          }}
+          onSuccess={(token) => {
+            setAdminToken(token);
+            setShowAdminLogin(false);
+            setShowAdminList(true);
+          }}
+        />
+      )}
+
+      {showAdminList && adminToken && (
+        <div className="fixed inset-0 z-40 overflow-auto">
+          <AdminReservationList
+            token={adminToken}
+            onLogout={() => {
+              setAdminToken(null);
+              setShowAdminList(false);
+              history.pushState({}, "", "/");
+            }}
+          />
+        </div>
       )}
     </div>
   );

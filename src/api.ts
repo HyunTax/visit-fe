@@ -11,7 +11,7 @@ async function parseErrorMessage(res: Response, fallback: string): Promise<strin
   }
 }
 
-export type ReservationStatus = "WAIT" | "CONFIRM" | "REJECT";
+export type ReservationStatus = "WAIT" | "CONFIRM" | "REJECT" | "CANCEL";
 
 export interface ReservationDetail {
   id: number;
@@ -22,6 +22,7 @@ export interface ReservationDetail {
   hasAllergy: boolean;
   memo: string;
   status: ReservationStatus;
+  statusMemo: string;
 }
 
 export async function postAuth(body: {
@@ -91,4 +92,54 @@ export async function deleteReservation(token: string, id: number): Promise<void
   });
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) throw new Error(await parseErrorMessage(res, "예약 취소 실패"));
+}
+
+export interface AdminReservation {
+  id: number;
+  name: string;
+  phoneNum: string;
+  visitDate: string;
+  visitorCount: number;
+  hasAllergy: boolean;
+  memo: string;
+  status: ReservationStatus;
+  statusMemo: string;
+}
+
+export async function adminLogin(password: string): Promise<string> {
+  const res = await fetch(`${BASE}/auth/admin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "비밀번호가 올바르지 않습니다"));
+  return (await res.text()).trim();
+}
+
+export async function getAdminReservations(token: string): Promise<AdminReservation[]> {
+  const res = await fetch(`${BASE}/reservation/all`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "예약 목록 조회 실패"));
+  return res.json() as Promise<AdminReservation[]>;
+}
+
+export async function approveReservation(token: string, id: number): Promise<void> {
+  const res = await fetch(`${BASE}/reservation/${id}/confirm`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "승인 실패"));
+}
+
+export async function rejectReservation(token: string, id: number, reason: string): Promise<void> {
+  const res = await fetch(`${BASE}/reservation/${id}/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ statusMemo: reason }),
+  });
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok) throw new Error(await parseErrorMessage(res, "거절 실패"));
 }
