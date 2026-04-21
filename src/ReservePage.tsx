@@ -420,7 +420,7 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
                   }}
                   className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
                 >
-                  취소
+                  돌아가기
                 </button>
                 <button
                   onClick={handleUpdate}
@@ -479,10 +479,76 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
                 )}
               </div>
             </div>
-          )}
+          ) : editMode ? (
+              <div className="space-y-5">
+                <DateFloatingInput
+                  label="방문 날짜"
+                  value={editForm.visitDate}
+                  onChange={(val) => {
+                    setEditForm((prev) => ({ ...prev, visitDate: val }));
+                    setEditErrors((prev) => ({ ...prev, visitDate: validateField("visitDate", val) }));
+                  }}
+                  error={editErrors.visitDate}
+                  shakeKey={editShakeKey}
+                />
+                <FloatingInput<EditForm>
+                  label="방문 인원"
+                  name="visitorCount"
+                  type="number"
+                  value={editForm.visitorCount}
+                  onChange={handleEditChange}
+                  error={editErrors.visitorCount}
+                  min={1}
+                  max={10}
+                  shakeKey={editShakeKey}
+                />
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setEditForm({ visitDate: detail.visitDate, visitorCount: detail.visitorCount, hasAllergy: detail.hasAllergy, memo: detail.memo });
+                      setEditErrors({});
+                      setEditMode(false);
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={handleUpdate}
+                    className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition"
+                  >
+                    수정 요청
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <DetailRow label="이름" value={detail.name} />
+                <DetailRow label="전화번호" value={detail.phoneNum} />
+                <DetailRow label="방문일" value={detail.visitDate} />
+                <DetailRow label="방문 인원" value={`${detail.visitorCount}명`} />
+                <DetailRow label="알러지" value={detail.hasAllergy ? "있음" : "없음"} />
+                {detail.memo && <DetailRow label="메모" value={detail.memo} />}
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={loading}
+                    className="flex-1 py-3 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 text-sm transition disabled:opacity-50"
+                  >
+                    예약 취소
+                  </button>
+                  <button
+                    onClick={() => setEditMode(true)}
+                    className="flex-1 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm transition"
+                  >
+                    예약 수정
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
   );
 }
 
