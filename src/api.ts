@@ -85,10 +85,11 @@ export async function putReservation(
   if (!res.ok) throw new Error(await parseErrorMessage(res, "예약 수정 실패"));
 }
 
-export async function deleteReservation(token: string, id: number): Promise<void> {
+export async function deleteReservation(token: string, id: number, reason: string): Promise<void> {
   const res = await fetch(`${BASE}/reservation/${id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ statusMemo: reason }),
   });
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) throw new Error(await parseErrorMessage(res, "예약 취소 실패"));

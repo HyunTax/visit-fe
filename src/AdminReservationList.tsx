@@ -43,10 +43,21 @@ export default function AdminReservationList({ token, onLogout }: AdminReservati
   const [rejectTarget, setRejectTarget] = useState<AdminReservation | null>(null);
   const [loadingIds, setLoadingIds] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     getAdminReservations(token).then(setReservations);
   }, [token]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const data = await getAdminReservations(token);
+      setReservations(data);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -112,7 +123,25 @@ export default function AdminReservationList({ token, onLogout }: AdminReservati
       <div className="border-b border-slate-100">
         <div className="px-6 pt-5 pb-0">
           <div className="flex items-center justify-between mb-0.5">
-            <h1 className="text-[19px] font-bold text-slate-800 tracking-tight">예약 관리</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-[19px] font-bold text-slate-800 tracking-tight">예약 관리</h1>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="text-slate-400 hover:text-slate-600 transition disabled:opacity-40"
+                aria-label="새로고침"
+              >
+                <svg
+                  width="15" height="15" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                  className={refreshing ? "animate-spin" : ""}
+                >
+                  <path d="M23 4v6h-6" />
+                  <path d="M1 20v-6h6" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+              </button>
+            </div>
             <button
               onClick={onLogout}
               className="flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-full transition"
@@ -168,7 +197,7 @@ export default function AdminReservationList({ token, onLogout }: AdminReservati
                 key={r.id}
                 className="bg-white rounded-xl border border-slate-200 p-3.5 mb-2"
               >
-                {/* 상단: 이름·인원 / 등록시간 */}
+                {/* 상단: 이름·인원 / 상태 */}
                 <div className="flex justify-between items-start mb-1.5">
                   <div>
                     <span className="text-[14.5px] font-bold text-slate-800 tracking-tight">
@@ -178,7 +207,7 @@ export default function AdminReservationList({ token, onLogout }: AdminReservati
                       · {r.visitorCount}명
                     </span>
                   </div>
-                  <span className="text-[10.5px] text-slate-400">{r.visitDate}</span>
+                  <AdminStatusBadge status={r.status} />
                 </div>
 
                 {/* 전화번호 */}
@@ -215,6 +244,12 @@ export default function AdminReservationList({ token, onLogout }: AdminReservati
                     <p className="text-[11.5px] text-red-600 leading-relaxed">{r.statusMemo}</p>
                   </div>
                 )}
+                {r.status === "CANCEL" && r.statusMemo && (
+                  <div className="px-2.5 py-1.5 bg-slate-50 rounded-lg border border-slate-200 mb-2.5">
+                    <p className="text-[10px] text-slate-400 font-semibold mb-0.5">취소 사유</p>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">{r.statusMemo}</p>
+                  </div>
+                )}
                 {r.status === "WAIT" ? (
                   <div className="flex gap-2">
                     <button
@@ -232,12 +267,7 @@ export default function AdminReservationList({ token, onLogout }: AdminReservati
                       {busy ? "처리 중..." : "승인"}
                     </button>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <AdminStatusBadge status={r.status} />
-                    <span className="text-[11px] text-slate-400">상세 보기 ›</span>
-                  </div>
-                )}
+                ) : null}
               </div>
             );
           })
