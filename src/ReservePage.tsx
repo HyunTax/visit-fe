@@ -227,6 +227,9 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
   const [editConfirmForm, setEditConfirmForm] = useState<{ hasAllergy: boolean; memo: string }>({ hasAllergy: false, memo: "" });
   const [editConfirmMemoError, setEditConfirmMemoError] = useState<string | undefined>(undefined);
   const [editConfirmShakeKey, setEditConfirmShakeKey] = useState(0);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelReasonError, setCancelReasonError] = useState<string | undefined>(undefined);
+  const [cancelReasonShakeKey, setCancelReasonShakeKey] = useState(0);
 
   const handleEditChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -250,7 +253,7 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
       setEditShakeKey((k) => k + 1);
       return;
     }
-    setEditConfirmForm({ hasAllergy: false, memo: detail.memo });
+    setEditConfirmForm({ hasAllergy: detail.hasAllergy, memo: detail.memo });
     setEditConfirmMode(true);
   };
 
@@ -276,9 +279,14 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
   };
 
   const handleDelete = async () => {
+    if (!cancelReason.trim()) {
+      setCancelReasonError("취소 사유를 입력해주세요");
+      setCancelReasonShakeKey((k) => k + 1);
+      return;
+    }
     setLoading(true);
     try {
-      await deleteReservation(token, detail.id);
+      await deleteReservation(token, detail.id, cancelReason.trim());
       onDeleted();
     } catch (e) {
       if (e instanceof UnauthorizedError) onUnauthorized();
@@ -313,12 +321,21 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
 
           {confirmDelete ? (
             <div className="space-y-5">
-              <p className="text-sm text-slate-500 text-center py-2">
-                <b>예약을 취소하시겠습니까?</b>
-              </p>
+              <FloatingInput<{ cancelReason: string }>
+                label="취소 사유"
+                name="cancelReason"
+                as="textarea"
+                value={cancelReason}
+                onChange={(e) => {
+                  setCancelReason(e.target.value);
+                  if (cancelReasonError) setCancelReasonError(undefined);
+                }}
+                error={cancelReasonError}
+                shakeKey={cancelReasonShakeKey}
+              />
               <div className="flex gap-3">
                 <button
-                  onClick={() => setConfirmDelete(false)}
+                  onClick={() => { setConfirmDelete(false); setCancelReason(""); setCancelReasonError(undefined); }}
                   className="flex-1 py-3 rounded-xl border border-gray-200 text-slate-500 text-sm hover:bg-slate-50 transition"
                 >
                   돌아가기
@@ -328,7 +345,7 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
                   disabled={loading}
                   className="flex-1 py-3 rounded-xl bg-red-400 hover:bg-red-500 text-white text-sm transition disabled:opacity-50"
                 >
-                  {loading ? "처리 중..." : "취소 확인"}
+                  {loading ? "처리 중..." : "예약 취소"}
                 </button>
               </div>
             </div>
@@ -442,6 +459,12 @@ function ReservationModal({ detail, token, onClose, onDeleted, onUpdated, onUnau
                 <div className="mt-2 px-3 py-2.5 bg-red-50 rounded-xl border border-red-100">
                   <p className="text-[11px] text-red-400 font-semibold mb-0.5">거절 사유</p>
                   <p className="text-[12.5px] text-red-600 leading-relaxed">{detail.statusMemo}</p>
+                </div>
+              )}
+              {detail.status === "CANCEL" && detail.statusMemo && (
+                <div className="mt-2 px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <p className="text-[11px] text-slate-400 font-semibold mb-0.5">취소 사유</p>
+                  <p className="text-[12.5px] text-slate-600 leading-relaxed">{detail.statusMemo}</p>
                 </div>
               )}
               <div className="flex gap-3 pt-4">
