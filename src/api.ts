@@ -107,6 +107,12 @@ export interface AdminReservation {
   statusMemo: string;
 }
 
+export async function getReservedDates(): Promise<string[]> {
+  const res = await fetch(`${BASE}/reservation/calender/reservced`);
+  if (!res.ok) return [];
+  return res.json() as Promise<string[]>;
+}
+
 export async function adminLogin(password: string): Promise<string> {
   const res = await fetch(`${BASE}/auth/admin`, {
     method: "POST",

@@ -12,6 +12,7 @@ import {
   getReservation,
   putReservation,
   deleteReservation,
+  getReservedDates,
   UnauthorizedError,
 } from "./api";
 import type { ReservationDetail, ReservationStatus } from "./api";
@@ -105,6 +106,7 @@ interface DateFloatingInputProps {
   onChange: (value: string) => void;
   error?: string;
   shakeKey?: number;
+  excludeDates?: Date[];
 }
 
 const CustomDateTrigger = forwardRef<
@@ -133,7 +135,7 @@ const CustomDateTrigger = forwardRef<
 ));
 CustomDateTrigger.displayName = "CustomDateTrigger";
 
-function DateFloatingInput({ label, value, onChange, error, shakeKey }: DateFloatingInputProps) {
+function DateFloatingInput({ label, value, onChange, error, shakeKey, excludeDates }: DateFloatingInputProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -165,6 +167,7 @@ function DateFloatingInput({ label, value, onChange, error, shakeKey }: DateFloa
         locale="ko"
         dateFormat="yyyy년 MM월 dd일"
         minDate={today}
+        excludeDates={excludeDates}
         customInput={<CustomDateTrigger label={label} error={!!error} />}
         popperPlacement="bottom-start"
         calendarClassName="dp-calendar"
@@ -525,6 +528,7 @@ const PRESUBMIT_INITIAL: PreSubmitForm = {
 
 export default function ReservePage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("reserve");
+  const [reservedDates, setReservedDates] = useState<Date[]>([]);
 
   const [reserveForm, setReserveForm] = useState<ReserveForm>(RESERVE_INITIAL);
   const [checkForm, setCheckForm] = useState<CheckForm>({ name: "", phoneNum: "", password: "" });
@@ -557,6 +561,12 @@ export default function ReservePage() {
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [adminToken, setAdminToken] = useState<string | null>(null);
   const [showAdminList, setShowAdminList] = useState(false);
+
+  useEffect(() => {
+    getReservedDates().then((dates) =>
+      setReservedDates(dates.map((d) => new Date(d + "T00:00:00")))
+    );
+  }, []);
 
   // /admin URL로 직접 접근 시 로그인 팝업 표시
   useEffect(() => {
@@ -758,6 +768,7 @@ export default function ReservePage() {
                   }}
                   error={reserveErrors.visitDate}
                   shakeKey={reserveShakeKey}
+                  excludeDates={reservedDates}
                 />
                 <FloatingInput<ReserveForm>
                   label="방문 인원"
